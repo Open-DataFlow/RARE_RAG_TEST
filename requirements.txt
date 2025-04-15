@@ -1,0 +1,6 @@
+langchain_chroma==0.2.2
+langchain_community==0.3.21
+langchain_huggingface==0.1.2
+langchain_text_splitters==0.3.8
+PyYAML==6.0.2
+PyYAML==6.0.2
