@@ -1,19 +1,25 @@
 from langchain_community.document_loaders import JSONLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain.vectorstores import MyScale
 import os
 import yaml
 import http.client
 import json
 import glob
 from typing import List, Dict, Any
-from time import time
 
 
-class RAGPipeline:
+class MyScaleRAGPipeline:
     def __init__(self, config_path: str = "../configs/text_rag_demo.yaml"):
         self.config = self._load_config(config_path)
+        self._setup_environment_vars()
+
+    def _setup_environment_vars(self):
+        os.environ['MYSCALE_HOST'] = self.config['myscale']['host']
+        os.environ['MYSCALE_PORT'] = str(self.config['myscale']['port'])
+        os.environ['MYSCALE_USERNAME'] = self.config['myscale']['username']
+        os.environ['MYSCALE_PASSWORD'] = self.config['myscale']['password']
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """加载YAML配置文件"""
@@ -54,34 +60,40 @@ class RAGPipeline:
         print(f"共加载 {len(docs)} 篇文档")
         return docs
 
-    def get_vectorstore(self, embeddings: Any) -> Chroma:
-        """初始化带持久化的向量数据库"""
-        if os.path.exists(self.config['paths']['persist_dir']):
-            print("检测到已有向量数据库，直接加载...")
-            return Chroma(
-                persist_directory=self.config['paths']['persist_dir'],
-                embedding_function=embeddings
-            )
-        else:
-            print("创建新向量数据库...")
-            # 修改为加载整个目录
-            docs = self.load_all_jsonl_documents()
-            splits = self.process_documents(docs)
+    def get_vectorstore(self, embeddings: Any) -> MyScale:
+        """初始化MyScale向量数据库"""
+        # 添加元数据到文档
+        docs = self.load_all_jsonl_documents()
+        splits = self.process_documents(docs)
 
-            # 打印统计信息
-            total_chunks = len(splits)
-            avg_chunk_len = sum(len(d.page_content) for d in splits) / total_chunks
-            print(f"\n知识库统计:")
-            print(f"- 原始文档数: {len(docs)}")
-            print(f"- 处理后片段数: {total_chunks}")
-            print(f"- 平均片段长度: {avg_chunk_len:.0f}字符")
+        for doc in splits:
+            if not hasattr(doc, 'metadata'):
+                doc.metadata = {}
+            doc.metadata.update({
+                "source": doc.metadata.get("source", "unknown"),
+                "chunk_id": hash(doc.page_content)  # 为每个分块生成唯一ID
+            })
 
-            vectorstore = Chroma.from_documents(
-                documents=splits,
-                embedding=embeddings,
-                persist_directory=self.config['paths']['persist_dir']
-            )
-            return vectorstore
+        # 打印统计信息
+        total_chunks = len(splits)
+        avg_chunk_len = sum(len(d.page_content) for d in splits) / total_chunks
+        print(f"\n知识库统计:")
+        print(f"- 原始文档数: {len(docs)}")
+        print(f"- 处理后片段数: {total_chunks}")
+        print(f"- 平均片段长度: {avg_chunk_len:.0f}字符")
+
+        # 创建MyScale向量存储
+        vectorstore = MyScale.from_documents(
+            documents=splits,
+            embedding=embeddings,
+            config={
+                "table": self.config['myscale'].get('table_name', 'default_rag_table'),
+                "database": self.config['myscale'].get('database', 'default'),
+                "index_type": self.config['myscale'].get('index_type', 'IVFFLAT'),
+                "metric_type": self.config['myscale'].get('metric_type', 'COSINE')
+            }
+        )
+        return vectorstore
 
     def query_chat_api(self, context: str, question: str) -> str:
         """调用ChatAnywhere API获取回答"""
@@ -121,80 +133,60 @@ class RAGPipeline:
         """格式化检索结果为上下文"""
         context = []
         for i, doc in enumerate(docs, 1):
-            context.append(f"【文档片段 {i}】\n{doc.page_content}\n")
+            context.append(f"【文档片段 {i}】(来源: {doc.metadata.get('source', '未知')})\n{doc.page_content}\n")
         return "\n".join(context)
 
     def run(self):
-        total_start_time = time()
-        start_time = time()
+        """运行整个RAG流程"""
+        # 初始化嵌入模型
         embeddings = HuggingFaceEmbeddings(
-            model_name=self.config['model']['embed_model'],
-            encode_kwargs={
-                'batch_size': 128
-            }
+            model_name=self.config['model']['embed_model']
         )
-        embed_init_time = time() - start_time
-        print(f"\n[耗时] 嵌入模型初始化: {embed_init_time:.2f}秒")
 
-        # 获取/创建向量数据库
-        start_time = time()
+        # 获取MyScale向量数据库
+        print("连接到MyScale向量数据库...")
         vectorstore = self.get_vectorstore(embeddings)
-        vectorstore_time = time() - start_time
-        print(f"[耗时] 向量数据库加载/创建: {vectorstore_time:.2f}秒")
 
         # 配置检索器
-        start_time = time()
         retriever = vectorstore.as_retriever(
             search_type="similarity",
-            search_kwargs={"k": self.config['retriever']['k']}
+            search_kwargs={
+                "k": self.config['retriever']['k'],
+                # 可以添加MyScale特有的过滤条件
+                # "where_str": "metadata.some_field = 'some_value'"
+            }
         )
-        retriever_setup_time = time() - start_time
-        print(f"[耗时] 检索器配置: {retriever_setup_time:.2f}秒")
 
         # 处理每个查询
         for query in self.config['queries']:
-            query_start_time = time()
             print(f"\n{'=' * 50}")
             print(f"原始问题: {query}")
 
             # 1. 检索相关文档
-            start_time = time()
             results = retriever.invoke(query)
-            retrieval_time = time() - start_time
-            print(f"[耗时] 检索阶段: {retrieval_time:.2f}秒")
 
             if not results:
                 print("未找到相关结果")
                 continue
 
-            # 2. 打印检索结果
+            # 2. 打印检索结果（带相似度分数）
             print("\n检索到的相关内容:")
-            for i, doc in enumerate(results, 1):
-                _, real_score = vectorstore.similarity_search_with_score(query, k=self.config['retriever']['k'])[i - 1]
-                print(f"[结果 {i}] ") #(相似度: {real_score:.6f})
-                print(doc.page_content[:200])
+            scored_results = vectorstore.similarity_search_with_score(query, k=self.config['retriever']['k'])
+            for i, (doc, score) in enumerate(scored_results, 1):
+                print(f"[结果 {i}] (相似度分数: {score:.4f})")
+                print(f"来源: {doc.metadata.get('source', '未知')}")
+                print(doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content)
+                print("-" * 50)
 
             # 3. 调用Chat API
-            start_time = time()
             context = self.format_context(results)
             answer = self.query_chat_api(context, query)
-            api_call_time = time() - start_time
-            print(f"[耗时] API调用+生成: {api_call_time:.2f}秒")
 
             # 4. 打印最终回答
             print("\nAI回答:")
             print(f"{answer}\n")
 
-            # 单次查询总耗时
-            query_total_time = time() - query_start_time
-            print(f"[总耗时] 当前查询处理: {query_total_time:.2f}秒")
-
-        # 整体流程总耗时
-        total_time = time() - total_start_time
-        print(f"\n{'=' * 50}")
-        print(f"[总耗时] 整个RAG Pipeline: {total_time:.2f}秒")
-
 
 if __name__ == "__main__":
-    pipeline = RAGPipeline()
+    pipeline = MyScaleRAGPipeline()
     pipeline.run()

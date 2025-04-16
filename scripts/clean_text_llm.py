@@ -38,9 +38,7 @@ def generate_responses_transformers(prompts, model, tokenizer, max_new_tokens=20
     )
 
     print("\n✅ 模型原始输出张量:", outputs)
-
     responses = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-
     return responses
 
 

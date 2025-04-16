@@ -92,7 +92,9 @@ def process_directory(input_dir, output_dir):
 
 
 if __name__ == "__main__":
-    input_directory = f"{grandparent_dir}/data/raw/text"
-    output_directory = f"{grandparent_dir}/data/processed/text"
+    # input_directory = f"{grandparent_dir}/data/raw/text"
+    input_directory = "/mnt/h_public/wongzhenhao/data_rag/data/en_best/merged_doc_input_ids"
+    # output_directory = f"{grandparent_dir}/data/processed/text"
+    output_directory = "/mnt/h_public/wongzhenhao/data_rag/data/en_best/merged_doc_input_ids/cleaned"
     process_directory(input_directory, output_directory)
     print("所有文件处理完成！")
