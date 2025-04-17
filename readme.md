@@ -66,7 +66,7 @@ python text_rag_myscale_pipeline.py
 **并行+Chroma：**
 
 ```
-python text_rag_myscale_pipeline.py
+python text_rag_pipeline_parallel
 ```
 
 ---
