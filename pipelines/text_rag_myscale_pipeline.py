@@ -23,10 +23,10 @@ class MyScaleRAGPipeline(RAGPipeline):
         self.num_gpus = torch.cuda.device_count()
         # MyScale 连接配置
         self.myscale_config = {
-            "host": "localhost",
-            "port": 8123,
-            "database": "default",
-            "table_name": "mp_test_vector"
+            "host": self.config['myscale']['host'],
+            "port": self.config['myscale']['port'],
+            "database": self.config['myscale']['database'],
+            "table_name":self.config['myscale']['table_name']
         }
         self.client = self._init_myscale_client()
         result = self.client.query("SELECT version()")
@@ -132,7 +132,7 @@ class MyScaleRAGPipeline(RAGPipeline):
             cosineDistance(embedding, {query_embedding_str}) AS cos_dist,
             L2Distance(embedding, {query_embedding_str}) AS l2_dist
         FROM {self.myscale_config['database']}.{self.myscale_config['table_name']}
-        ORDER BY cos_dist
+        ORDER BY {self.config['myscale']['metric_type']}
         LIMIT {k}
         """
         # print(f"执行的SQL: {search_sql}")
@@ -257,14 +257,10 @@ class MyScaleRAGPipeline(RAGPipeline):
             print("\n检索到的相关内容:")
             for i, doc in enumerate(results, 1):
                 print(f"[结果 {i}] (距离: {doc['cosine_distance']:.6f})")
-                print(doc['text'][:200] + "...")  # 只显示前200个字符
-
-            # 3. 格式化并显示结果（不再调用API）
+                print(doc['text'][:200] + "...")
             context = "\n".join([f"【文档片段 {i}】\n{doc['text']}" for i, doc in enumerate(results, 1)])
-
             print("\n检索结果整合:")
-            print(context[:1000] + ("..." if len(context) > 1000 else ""))  # 限制显示长度
-
+            print(context)
             # 单次查询总耗时
             query_total_time = time.time() - query_start_time
             print(f"[总耗时] 当前查询处理: {query_total_time:.2f}秒")

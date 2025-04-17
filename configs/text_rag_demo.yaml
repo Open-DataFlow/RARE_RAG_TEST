@@ -1,12 +1,9 @@
 myscale:
-  host: ""
-  port: 443
-  username: ""
-  password: ""
-  table_name: "rag_documents"
+  host: "localhost"
+  port: 8123
+  table_name: "mp_test_vector"
   database: "default"
-  index_type: "IVFFLAT"
-  metric_type: "COSINE"
+  metric_type: "cos_dist"  # l2_dist
 
 # 路径配置
 paths:
@@ -52,5 +49,4 @@ api:
 
 # 测试查询列表
 queries:
-  - "Human Genome Project"  # 人类基因组计划
   - "Jupiter's Water"       # 木星水资源
