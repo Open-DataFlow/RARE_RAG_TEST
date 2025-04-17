@@ -9,11 +9,13 @@ import json
 import glob
 from typing import List, Dict, Any
 from time import time
+from transformers import AutoTokenizer
 
 
 class RAGPipeline:
     def __init__(self, config_path: str = "../configs/text_rag_demo.yaml"):
         self.config = self._load_config(config_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.config['model']['embed_model'])
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """加载YAML配置文件"""
@@ -37,6 +39,11 @@ class RAGPipeline:
             chunk_overlap=self.config['text_splitter']['chunk_overlap'],
             add_start_index=True
         )
+        # text_splitter = RecursiveCharacterTextSplitter(
+        #     chunk_size=self.config['text_splitter']['chunk_size'],
+        #     chunk_overlap=self.config['text_splitter']['chunk_overlap'],
+        #     length_function=lambda text: len(self.tokenizer.encode(text)),
+        # )
         return text_splitter.split_documents(docs)
 
     def load_all_jsonl_documents(self) -> List[Any]:
