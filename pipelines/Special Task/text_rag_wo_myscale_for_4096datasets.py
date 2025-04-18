@@ -96,9 +96,7 @@ class MyScaleRAGPipeline(RAGPipeline):
     def _process_batch_docs(self, args):
         gpu_id, file_paths = args
         torch.cuda.set_device(gpu_id)
-
-        # 每个进程写入独立临时文件
-        per_gpu_file = f"{self.output_file}.gpu{gpu_id}.jsonl"
+        per_gpu_file = f"{self.output_file}.gpu{gpu_id}_4096dataset.jsonl"
         os.makedirs(os.path.dirname(per_gpu_file), exist_ok=True)
 
         embeddings = HuggingFaceEmbeddings(
@@ -106,7 +104,6 @@ class MyScaleRAGPipeline(RAGPipeline):
             model_kwargs={'device': f'cuda:{gpu_id}'},
             encode_kwargs={'batch_size': self.config["model"]["batch_size"]}
         )
-
         with open(per_gpu_file, 'w', encoding='utf-8') as f:
             for file_path in tqdm(file_paths, desc=f"GPU {gpu_id} 文件进度"):
                 current_file = os.path.basename(file_path)
@@ -114,7 +111,6 @@ class MyScaleRAGPipeline(RAGPipeline):
                     docs = self.load_jsonl_documents(file_path)
                     splits = self.process_documents(docs)
                     texts = [doc.page_content for doc in splits]
-
                     text_embeddings = []
                     for i in range(0, len(texts), self.config["model"]["batch_size"]):
                         batch = texts[i:i + self.config["model"]["batch_size"]]
@@ -132,8 +128,6 @@ class MyScaleRAGPipeline(RAGPipeline):
                         text_embeddings.extend(batch_embeddings)
                         if i % 100 == 0:
                             torch.cuda.empty_cache()
-
-                    # 写入当前GPU的临时文件
                     for text, embedding in zip(texts, text_embeddings):
                         item = {
                             "id": str(uuid.uuid4()),
@@ -158,11 +152,7 @@ class MyScaleRAGPipeline(RAGPipeline):
                     # os.remove(tmp_file)
                 except FileNotFoundError:
                     print(f"警告: 临时文件 {tmp_file} 不存在")
-    def _get_file_index(self, filename: str) -> int:
-        match = re.search(r'2048ch_cleaned_en_best_(\d+)\.jsonl', filename)
-        if match:
-            return int(match.group(1))
-        return -1
+
     @staticmethod
     def _init_child_process(lock_path):
         """每个子进程初始化时执行的函数"""
@@ -209,28 +199,29 @@ class MyScaleRAGPipeline(RAGPipeline):
     #     print(f"处理速度: {len(filtered_files) / total_time:.2f} 文件/秒")
     #     return results
     def load_all_jsonl_documents(self) -> List[Any]:
-        jsonl_files = glob.glob(os.path.join(self.config['paths']['jsonl_dir'], "2048ch_cleaned_en_best_*.jsonl"))
-        jsonl_files = glob.glob(os.path.join(self.config['paths']['jsonl_dir'], "2048ch_cleaned_en_best_*.jsonl"))
-        # 文件过滤逻辑
-        if not hasattr(self, 'start_idx') or not hasattr(self, 'end_idx'):
-            filtered_files = jsonl_files
+        # 1. 获取所有jsonl文件
+        # jsonl_dir = self.config['paths']['jsonl_dir']
+        jsonl_dir = self.jsonl_dir
+        all_files = glob.glob(os.path.join(jsonl_dir, "*.jsonl"))
+        all_files.sort()
+
+        print(f"目录 {jsonl_dir} 共找到 {len(all_files)} 个jsonl文件")
+
+        # 2. 根据 start_idx 和 end_idx 切片
+        if hasattr(self, 'start_idx') and hasattr(self, 'end_idx'):
+            start = self.start_idx
+            end = self.end_idx + 1 if self.end_idx is not None else None
+            filtered_files = all_files[start:end]
+            print(f"只处理文件下标 {start} 到 {end - 1}（共 {len(filtered_files)} 个）")
         else:
-            filtered_files = [
-                f for f in jsonl_files
-                if self.start_idx <= self._get_file_index(os.path.basename(f)) <= self.end_idx
-            ]
-
+            filtered_files = all_files
         if not filtered_files:
-            raise ValueError(f"目录 {self.config['paths']['jsonl_dir']} 中没有找到符合条件的JSONL文件")
-
-        filtered_files.sort(key=lambda x: self._get_file_index(os.path.basename(x)))
-        print(f"找到 {len(filtered_files)} 个JSONL文件，使用 {self.num_gpus} 张GPU并行处理")
-
-        # 2. 创建临时工作区
+            raise ValueError(f"目录 {jsonl_dir} 中没有找到符合条件的JSONL文件")
+        print(f"最终选定 {len(filtered_files)} 个JSONL文件，使用 {self.num_gpus} 张GPU并行处理")
+        # 后续代码保持不变...
         temp_dir = tempfile.mkdtemp(prefix="rag_processing_")
         lock_file = os.path.join(temp_dir, "merge.lock")
 
-        # 4. 多进程处理
         start_time = time.time()
         file_chunks = [filtered_files[i::self.num_gpus] for i in range(self.num_gpus)]
         chunk_sizes = [len(chunk) for chunk in file_chunks]
@@ -247,7 +238,6 @@ class MyScaleRAGPipeline(RAGPipeline):
                 ):
                     pbar.update(chunk_sizes[gpu_id])
 
-                    # 主进程负责合并结果
         with FileLock(lock_file, timeout=300):
             self._merge_temp_files()
             print("所有GPU已完成，临时文件已合并")
@@ -260,7 +250,8 @@ class MyScaleRAGPipeline(RAGPipeline):
         print(f"平均速度: {len(filtered_files) / total_time:.2f} 文件/秒")
 
         return []
-    def run(self, output_file, start_idx=None, end_idx=None):
+    def run(self, output_file, start_idx=None, end_idx=None,json_dir=""):
+        self.jsonl_dir = json_dir
         self.output_file = f"/mnt/h_h_public/lh/lz/Rare_rag/data/processed/text/{output_file}"
         if start_idx is not None and end_idx is not None:
             self.start_idx = start_idx
@@ -294,4 +285,4 @@ if __name__ == "__main__":
     end_idx = int(sys.argv[4]) if len(sys.argv) > 4 else None
     json_dir = sys.argv[5] if len(sys.argv) > 5 else "/mnt/h_h_public/wongzhenhao/data_rag/data/en_best/4096seq/cleaned/split"
     pipeline = MyScaleRAGPipeline(config_path)
-    pipeline.run(output_file=output_file, start_idx=start_idx, end_idx=end_idx)
+    pipeline.run(output_file=output_file, start_idx=start_idx, end_idx=end_idx,json_dir = json_dir)

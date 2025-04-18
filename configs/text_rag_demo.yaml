@@ -1,14 +1,16 @@
 myscale:
   host: "localhost"
   port: 8123
-  table_name: "mp_test_vector"
+  table_name: "mp_test_vector_2"
   database: "default"
   metric_type: "cos_dist"  # l2_dist
 
 # 路径配置
 paths:
   # JSONL文件存放目录（支持多个文件）
-  jsonl_dir: "../data/raw/text/"
+#  jsonl_dir: "/mnt/h_h_public/wongzhenhao/data_rag/data/en_best/merged_doc_input_ids/cleaned/split"
+#  jsonl_dir: "/mnt/h_h_public/lh/lz/Rare_rag/data/raw/text"
+  jsonl_dir: "/mnt/h_h_public/wongzhenhao/data_rag/data/en_best/4096seq/cleaned/split"
   # 向量数据库持久化存储目录
   persist_dir: "../outputs/bge_m3_chroma_db_4_gpu_mp_ch1024" #"./chroma_db"
 
@@ -21,15 +23,14 @@ model:
   embed_model: "/mnt/public/model/bge-m3"
   # 聊天模型名称
   chat_model: "gpt-3.5-turbo"
-
-  batch_size: 128
+  batch_size: 256
 
 # 文本分割器配置
 text_splitter:
   # 每个文本块的最大长度
-  chunk_size: 2048
+  chunk_size: 1024
   # 相邻文本块的重叠长度
-  chunk_overlap: 400
+  chunk_overlap: 200
 
 # 检索器配置
 retriever:

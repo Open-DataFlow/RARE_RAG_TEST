@@ -159,8 +159,8 @@ class MyScaleRAGPipeline(RAGPipeline):
     def load_jsonl_documents(file_path: str) -> List[Any]:
         return JSONLoader(
             file_path=file_path,
-            jq_schema='.text',  # 保持与父类一致的字段抽取规则
-            text_content=False,  # 保持与父类一致的原始数据保留方式
+            jq_schema='.text', #.contents
+            text_content=False,
             json_lines=True
         ).load()
 

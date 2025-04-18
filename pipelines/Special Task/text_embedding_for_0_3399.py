@@ -98,7 +98,7 @@ class MyScaleRAGPipeline(RAGPipeline):
         torch.cuda.set_device(gpu_id)
 
         # 每个进程写入独立临时文件
-        per_gpu_file = f"{self.output_file}.gpu{gpu_id}.jsonl"
+        per_gpu_file = f"{self.output_file}.gpu{gpu_id}_new.jsonl"
         os.makedirs(os.path.dirname(per_gpu_file), exist_ok=True)
 
         embeddings = HuggingFaceEmbeddings(
@@ -150,7 +150,7 @@ class MyScaleRAGPipeline(RAGPipeline):
     def _merge_temp_files(self):
         with open(self.output_file, 'w', encoding='utf-8') as out_f:
             for gid in range(self.num_gpus):
-                tmp_file = f"{self.output_file}.gpu{gid}.jsonl"
+                tmp_file = f"{self.output_file}.gpu{gid}_new.jsonl"
                 try:
                     with open(tmp_file, 'r', encoding='utf-8') as in_f:
                         pass
@@ -210,7 +210,7 @@ class MyScaleRAGPipeline(RAGPipeline):
     #     return results
     def load_all_jsonl_documents(self) -> List[Any]:
         jsonl_files = glob.glob(os.path.join(self.config['paths']['jsonl_dir'], "2048ch_cleaned_en_best_*.jsonl"))
-        jsonl_files = glob.glob(os.path.join(self.config['paths']['jsonl_dir'], "2048ch_cleaned_en_best_*.jsonl"))
+
         # 文件过滤逻辑
         if not hasattr(self, 'start_idx') or not hasattr(self, 'end_idx'):
             filtered_files = jsonl_files
@@ -286,12 +286,10 @@ class MyScaleRAGPipeline(RAGPipeline):
 if __name__ == "__main__":
     mp.set_start_method('spawn')
     print("Start！！！！！")
-
     # 解析命令行参数
     config_path = sys.argv[1] if len(sys.argv) > 1 else "../configs/text_rag_demo.yaml"
     output_file = sys.argv[2] if len(sys.argv) > 2 else "embeddings.jsonl"
     start_idx = int(sys.argv[3]) if len(sys.argv) > 3 else None
     end_idx = int(sys.argv[4]) if len(sys.argv) > 4 else None
-    json_dir = sys.argv[5] if len(sys.argv) > 5 else "/mnt/h_h_public/wongzhenhao/data_rag/data/en_best/4096seq/cleaned/split"
     pipeline = MyScaleRAGPipeline(config_path)
     pipeline.run(output_file=output_file, start_idx=start_idx, end_idx=end_idx)
